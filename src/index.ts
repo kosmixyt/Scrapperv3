@@ -18,6 +18,10 @@ dotenv.config();
 
 const app = express();
 
+app.set('trust proxy', 1); // ou 'trust proxy', true
+
+
+
 // Middleware pour l'authentification par token
 // Ceci va vérifier si un token est présent et authentifier l'utilisateur si c'est le cas
 app.use((req, res, next) => {
