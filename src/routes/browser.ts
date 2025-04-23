@@ -200,7 +200,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
 
 async function BrowserDownloadFile(req: express.Request, res: express.Response) {
     const user = await GetUser(req);
-    if (user) {
+    if (!user) {
         return res.status(401).json({ message: 'Authentication required' });
     }
     const url = req.query.url as string;
