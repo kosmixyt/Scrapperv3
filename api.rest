@@ -1,0 +1,13 @@
+
+
+
+POST http://localhost:3000/browser/get
+Content-Type: application/json
+Authorization: Bearer f8bd08b0a62f31ae5274ce804aeaed3a14c7ce904a0d25f3d96f69668347bce1
+
+{
+  "url":"https://ygg.re",
+  "session_id":"",
+  "actions":[],
+  "cookies":[]
+}

@@ -1,0 +1,7 @@
+node_modules
+*.db
+.env
+cloudfront/
+
+*.png
+static/
