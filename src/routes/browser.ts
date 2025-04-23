@@ -203,9 +203,17 @@ async function BrowserDownloadFile(req: express.Request, res: express.Response) 
     if (!user) {
         return res.status(401).json({ message: 'Authentication required' });
     }
-    const url = req.query.url as string;
-    const session_id = req.query.session_id as string;
-    // chekc if url is valid
+
+    // Support both GET (query) and POST (body) for url/session_id
+    let url: string, session_id: string;
+    if (req.method === "POST") {
+        url = req.body.url;
+        session_id = req.body.session_id;
+    } else {
+        url = req.query.url as string;
+        session_id = req.query.session_id as string;
+    }
+
     try {
         new URL(url);
     } catch (error) {
@@ -214,57 +222,64 @@ async function BrowserDownloadFile(req: express.Request, res: express.Response) 
     if (!url.startsWith("http")) {
         return res.status(400).json({ message: 'Invalid URL' });
     }
+
     // get session from db
     const [Browsersession, dbSession] = await SessionController.GetSession(user as any, session_id);
     if (!Browsersession) {
         return res.status(404).json({ message: 'Session not found' });
     }
-    const cookies = await Browsersession.browser.cookies()
-    // additional headers
+    const cookies = await Browsersession.browser.cookies();
     const cookiesAsString = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
     const headers = {
         'User-Agent': await Browsersession.browser.userAgent(),
         'Cookie': cookiesAsString,
-    }
-    const fetchReq = await fetch(url, {
-        method: 'GET',
-        headers: headers,
-        redirect: 'follow',
-    });
-    if (!fetchReq.ok) {
-        return res.status(fetchReq.status).json({ message: 'Failed to download file' });
-    }
-    const contentType = fetchReq.headers.get('content-type') || 'application/octet-stream';
-    const contentDisposition = fetchReq.headers.get('content-disposition') || 'attachment; filename="downloaded_file"';
-    const filename = contentDisposition.split('filename=')[1]?.replace(/['"]/g, '') || 'downloaded_file';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', fetchReq.headers.get('content-length') || '0');
-
-    const reader = fetchReq.body?.getReader();
-    if (!reader) {
-        return res.status(500).json({ message: 'Failed to read response stream' });
-    }
+    };
 
     try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-            res.write(value);
+        const fetchReq = await fetch(url, {
+            method: 'GET',
+            headers: headers,
+            redirect: 'follow',
+        });
+        if (!fetchReq.ok) {
+            console.error(`Failed to fetch file: ${fetchReq.status} ${fetchReq.statusText}`);
+            return res.status(fetchReq.status).json({ message: 'Failed to download file' });
         }
-        res.end();
+        const contentType = fetchReq.headers.get('content-type') || 'application/octet-stream';
+        const contentDisposition = fetchReq.headers.get('content-disposition') || 'attachment; filename="downloaded_file"';
+        const filename = contentDisposition.split('filename=')[1]?.replace(/['"]/g, '') || 'downloaded_file';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', fetchReq.headers.get('content-length') || '0');
+
+        // Stream the response body to the client
+        if (fetchReq.body) {
+            const reader = fetchReq.body.getReader();
+            res.status(200);
+            const pump = async () => {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    res.write(value);
+                }
+                res.end();
+            };
+            pump().catch(err => {
+                reader.releaseLock();
+                res.status(500).json({ message: 'Failed to stream response' });
+            });
+        } else {
+            res.status(500).json({ message: 'Failed to read response stream' });
+        }
     } catch (error) {
-        reader.releaseLock();
-        res.status(500).json({ message: 'Failed to stream response' });
+        res.status(500).json({ message: 'Proxy download failed', error: error?.toString() });
     }
 }
-
 
 export const timeout = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 browserRouter.post("/get", GetRequest);
 browserRouter.get("/download", BrowserDownloadFile);
+browserRouter.post("/download", BrowserDownloadFile); // Ajoute POST pour proxy download
 
 
 

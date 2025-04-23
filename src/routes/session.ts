@@ -4,6 +4,7 @@ import { getSession } from '@auth/express';
 import { authConfig } from '../utils/config.auth';
 import { User } from '@prisma/client';
 import { GetUser } from '../utils/session';
+import { DefaultPuppeteerOptions } from '../utils/pupp';
 export const sessionRouter = express.Router();
 
 
@@ -17,7 +18,7 @@ async function SessionCreate(req: express.Request, res: express.Response) {
     if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    const [browserSess, _] = await SessionController.CreateSession(user as User, {})
+    const [browserSess, _] = await SessionController.CreateSession(user as User, DefaultPuppeteerOptions())
     if (!browserSess) {
         return res.status(500).json({ error: 'Failed to create session' });
     }

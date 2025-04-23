@@ -8,7 +8,7 @@ export const authConfig: ExpressAuthConfig = {
   adapter: PrismaAdapter(prisma),
   providers: [
     // @ts-ignore
-    DiscordProvider.default({
+    (DiscordProvider.default || DiscordProvider)({
       clientId: process.env.DISCORD_CLIENT_ID as string,
       clientSecret: process.env.DISCORD_CLIENT_SECRET as string,
 
