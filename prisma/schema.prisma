@@ -9,22 +9,24 @@ datasource db {
 }
 
 model User {
-  id             String           @id @default(cuid())
-  name           String?
-  email          String?          @unique
-  emailVerified  DateTime?
-  image          String?
-  DeepSeekApiKey String?          @unique
-  ChatgptApiKey  String?          @unique
-  accounts       Account[]
-  sessions       Session[]
+  id                  String           @id @default(cuid())
+  name                String?
+  email               String?          @unique
+  emailVerified       DateTime?
+  image               String?
+  DeepSeekApiKey      String?          @unique
+  ChatgptApiKey       String?          @unique
+  preferredAiProvider String? // Fournisseur d'IA préféré
+  preferredAiModel    String? // Modèle d'IA préféré
+  accounts            Account[]
+  sessions            Session[]
   // Optional for WebAuthn support
-  Authenticator  Authenticator[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  BrowserSession BrowserSession[]
-  authTokens     AuthToken[]
-  RequestLog     RequestLog[]
+  Authenticator       Authenticator[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  BrowserSession      BrowserSession[]
+  authTokens          AuthToken[]
+  RequestLog          RequestLog[]
 }
 
 model Account {

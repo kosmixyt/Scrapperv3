@@ -15,6 +15,7 @@ import { exec, spawn, ChildProcess } from "child_process";
 import * as path from "path";
 import { generateText } from "ai";
 import { createDeepSeek } from "@ai-sdk/deepseek";
+import { ai_extractor } from "../utils/ai";
 
 export const browserRouter = express.Router();
 
@@ -117,13 +118,11 @@ async function GetRequest(req: express.Request, res: express.Response) {
     return res.status(500).json({ message: response.message });
   }
   try {
-    console.log("Actions: ", actions);
     for (const action of actions) {
       if (!("type" in action)) {
         throw new Error(`Invalid action type`);
       }
       const actionType = action.type;
-      console.log(actionType);
       switch (actionType) {
         case "reload":
           await page.reload({ waitUntil: "domcontentloaded" });
@@ -227,58 +226,19 @@ async function GetRequest(req: express.Request, res: express.Response) {
     };
     if (hasAi) {
       try {
-        var deepseekApi = createDeepSeek({
-          apiKey: user.DeepSeekApiKey as string,
-        });
+        const start = Date.now();
+        // Utiliser les préférences de l'utilisateur au lieu de hardcoder "openai" et "gpt-4.1-mini"
+        const data = await ai_extractor(pageText, user, body.ai_schema);
+        // @ts-ignore
+        responseData["ai"] = data;
+        const end = Date.now();
+        console.log("AI extraction time:", end - start, "ms");
       } catch (e) {
-        console.error("Failed to create DeepSeek API client:", e);
-        return res.status(500).json({
-          message: "Failed to create DeepSeek API client"
-        });
-      }
-
-      // Build the prompt based on whether a schema is provided
-      let prompt = "";
-      if (!body.ai_schema) {
-        return res.status(500).json({ message: "No schema provided" });
-      }
-      // If schema is provided, ask the model to follow it
-      prompt = `Extract the data from the following text as JSON following exactly this schema: ${JSON.stringify(
-        body.ai_schema
-      )}
-          Text to extract from:
-          ${pageText}
-          Return only valid JSON that matches the schema. Do not include any explanations or additional text.`;
-      const ai_res = (
-        await generateText({
-          model: deepseekApi("deepseek-chat"),
-          prompt: prompt,
-        })
-      ).text;
-
-      // Clean up the response to extract just the JSON
-      let ai_json = ai_res;
-      if (ai_res.includes("```json")) {
-        ai_json = ai_res
-          .substring(ai_res.indexOf("```json") + 7, ai_res.lastIndexOf("```"))
-          .trim();
-      } else if (ai_res.includes("```")) {
-        ai_json = ai_res
-          .substring(ai_res.indexOf("```") + 3, ai_res.lastIndexOf("```"))
-          .trim();
-      }
-
-      try {
-        console.log("AI extracted JSON:", ai_json);
-        const ai_json_obj = JSON.parse(ai_json);
-        //@ts-ignore
-        responseData["ai"] = ai_json_obj;
-      } catch (e) {
-        console.error("Failed to parse AI JSON:", e);
-        //@ts-ignore
-        responseData["ai"] = ai_json;
+        console.error("Failed to extract AI data:", e);
+        return res.status(500).json({ message: "Failed to extract AI data" });
       }
     }
+    await close()
     return res.status(200).json(responseData);
   } catch (e) {
     console.error("Failed to create request log:", e);

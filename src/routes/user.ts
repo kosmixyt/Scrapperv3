@@ -18,6 +18,8 @@ router.get('/profile', authenticatedUser, async (req: Request, res: Response) =>
       select: {
         ChatgptApiKey: true,
         DeepSeekApiKey: true,
+        preferredAiProvider: true,
+        preferredAiModel: true,
         id: true,
         email: true,
         name: true,
@@ -47,13 +49,15 @@ router.put('/profile', authenticatedUser, async (req, res) => {
     if (!session?.user?.email) {
       return res.status(401).json({ message: 'Authentication required' });
     }
-    const { name, DeepSeekApiKey, ChatgptApiKey } = req.body;
+    const { name, DeepSeekApiKey, ChatgptApiKey, preferredAiProvider, preferredAiModel } = req.body;
     const updatedUser = await prisma.user.update({
       where: { email: session.user.email },
       data: {
         name,
         DeepSeekApiKey: DeepSeekApiKey || null,
-        ChatgptApiKey: ChatgptApiKey || null
+        ChatgptApiKey: ChatgptApiKey || null,
+        preferredAiProvider: preferredAiProvider || null,
+        preferredAiModel: preferredAiModel || null
       },
       select: {
         id: true,
@@ -61,6 +65,8 @@ router.put('/profile', authenticatedUser, async (req, res) => {
         name: true,
         DeepSeekApiKey: true,
         ChatgptApiKey: true,
+        preferredAiProvider: true,
+        preferredAiModel: true,
         updatedAt: true,
       },
     });
