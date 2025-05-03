@@ -16,6 +16,8 @@ router.get('/profile', authenticatedUser, async (req: Request, res: Response) =>
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
       select: {
+        ChatgptApiKey: true,
+        DeepSeekApiKey: true,
         id: true,
         email: true,
         name: true,
@@ -23,8 +25,15 @@ router.get('/profile', authenticatedUser, async (req: Request, res: Response) =>
         updatedAt: true,
       },
     });
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+    if (user.ChatgptApiKey) {
+      user.ChatgptApiKey = "**********"; // Masquer le token
+    }
+    if (user.DeepSeekApiKey) {
+      user.DeepSeekApiKey = "**********"; // Masquer le token
     }
     res.json(user);
   } catch (error) {
