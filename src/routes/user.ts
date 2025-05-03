@@ -31,20 +31,27 @@ router.get('/profile', authenticatedUser, async (req: Request, res: Response) =>
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 router.put('/profile', authenticatedUser, async (req, res) => {
   try {
     const session = await getSession(req, authConfig);
     if (!session?.user?.email) {
       return res.status(401).json({ message: 'Authentication required' });
     }
-    const { name } = req.body;
+    const { name, DeepSeekApiKey, ChatgptApiKey } = req.body;
     const updatedUser = await prisma.user.update({
       where: { email: session.user.email },
-      data: { name },
+      data: {
+        name,
+        DeepSeekApiKey: DeepSeekApiKey || null,
+        ChatgptApiKey: ChatgptApiKey || null
+      },
       select: {
         id: true,
         email: true,
         name: true,
+        DeepSeekApiKey: true,
+        ChatgptApiKey: true,
         updatedAt: true,
       },
     });

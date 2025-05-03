@@ -15,6 +15,7 @@ model User {
   emailVerified  DateTime?
   image          String?
   DeepSeekApiKey String?          @unique
+  ChatgptApiKey  String?          @unique
   accounts       Account[]
   sessions       Session[]
   // Optional for WebAuthn support

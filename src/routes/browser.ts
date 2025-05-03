@@ -226,12 +226,16 @@ async function GetRequest(req: express.Request, res: express.Response) {
       screenshot: `/screenshot/${uuid}`,
     };
     if (hasAi) {
-      // if (!user.DeepSeekApiKey) {
-      //   return res.status(500).json({ message: "No DeepSeek API key" });
-      // }
-      const deepseekApi = createDeepSeek({
-        apiKey: process.env.DEEPSEEK_API,
-      });
+      try {
+        var deepseekApi = createDeepSeek({
+          apiKey: user.DeepSeekApiKey as string,
+        });
+      } catch (e) {
+        console.error("Failed to create DeepSeek API client:", e);
+        return res.status(500).json({
+          message: "Failed to create DeepSeek API client"
+        });
+      }
 
       // Build the prompt based on whether a schema is provided
       let prompt = "";
