@@ -77,6 +77,21 @@ async function GetRequest(req: express.Request, res: express.Response) {
       await browser.browser.setCookie(cookie);
     }
   }
+  const close = async () => {
+    const pageLength = (await browser.browser.pages()).length;
+    if (isUsingSession) {
+      if (pageLength > 1) {
+        await page.close();
+      }
+    } else {
+      try {
+        await page.close();
+        await browser.browser.close();
+      } catch (error) {
+        console.error("Error closing browser:", error);
+      }
+    }
+  }
 
   page.goto(body.url);
   const response: Error | HTTPResponse = await new Promise(
@@ -111,7 +126,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
       console.log(actionType);
       switch (actionType) {
         case "reload":
-          await page.reload({ waitUntil: "networkidle0" });
+          await page.reload({ waitUntil: "domcontentloaded" });
           break;
         case "wait":
           const time = isNaN(parseInt(action.time)) ? 0 : parseInt(action.time);
@@ -159,21 +174,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
     }
   } catch (error: unknown) {
     console.log("Closing browser session");
-    // if (browser.browser.isConnected()
-    const pageLength = (await browser.browser.pages()).length;
-    if (isUsingSession) {
-      if (pageLength > 1) {
-        await page.close();
-      }
-    } else {
-      try {
-        await page.close();
-        await browser.browser.close();
-      } catch (error) {
-        console.error("Error closing browser:", error);
-      }
-    }
-
+    await close();
     return res
       .status(500)
       .json({ message: `Failed to execute actions : ${error}` });
@@ -182,22 +183,16 @@ async function GetRequest(req: express.Request, res: express.Response) {
   var hasAi = typeof body.ai_extractor === "string";
   if (hasAi) {
     const selectorText = body.ai_extractor;
-    try {
-      var pageText = await page.evaluate((selector) => {
-        const element = document.querySelector(selector);
-        if (element) {
-          return element.innerText;
-        } else {
-          return null;
-        }
-      }, selectorText);
-    } catch (error) {
-      console.error("Error extracting text:", error);
-      return res
-        .status(500)
-        .json({ message: "Failed to execute selector for ai" });
-    }
+    var pageText = await page.evaluate((selector) => {
+      const element = document.querySelector(selector);
+      if (element) {
+        return element.innerText;
+      } else {
+        return null;
+      }
+    }, selectorText);
     if (!pageText) {
+      await close();
       return res.status(500).json({ message: "Failed to extract text" });
     }
   }
@@ -209,19 +204,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
   const title = await page.title();
   await page.screenshot({ path: process.env.SCREENSHOT_PATH + `${uuid}.png` });
 
-  const pageLength = (await browser.browser.pages()).length;
-  if (isUsingSession) {
-    if (pageLength > 1) {
-      await page.close();
-    }
-  } else {
-    try {
-      await page.close();
-      await browser.browser.close();
-    } catch (error) {
-      console.error("Error closing browser:", error);
-    }
-  }
+
   await prisma.requestLog.create({
     data: {
       userId: user.id,
