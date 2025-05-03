@@ -56,6 +56,7 @@ export async function ai_extractor(content: string, user: User, ai_schema: strin
             .trim();
     }
     try {
+        console.log("AI Model response:", model_to_use, "Provider:", provider_to_use);
         console.log("AI extracted JSON:", ai_json);
         return JSON.parse(ai_json);
     } catch (e) {
