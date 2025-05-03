@@ -16,9 +16,6 @@ import * as path from "path";
 import { generateText } from "ai";
 import { createDeepSeek } from "@ai-sdk/deepseek";
 
-const deepseekApi = createDeepSeek({
-  apiKey: process.env.DEEPSEEK_API,
-});
 export const browserRouter = express.Router();
 
 async function GetRequest(req: express.Request, res: express.Response) {
@@ -31,6 +28,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
 
   const uuid = randomUUID();
 
+  var isUsingSession = false;
   if (body.session_id.length > 0) {
     var [Browsersession, dbSession] = await SessionController.GetSession(
       user as any,
@@ -39,6 +37,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
     if (!Browsersession) {
       return res.status(404).json({ message: "Session not found" });
     }
+    isUsingSession = true;
     browser = Browsersession;
   } else {
     browser = await connect(DefaultPuppeteerOptions());
@@ -79,10 +78,11 @@ async function GetRequest(req: express.Request, res: express.Response) {
     }
   }
 
-  page.goto(body.url, { waitUntil: "networkidle0" });
+  page.goto(body.url);
   const response: Error | HTTPResponse = await new Promise(
     (resolve, reject) => {
       var timeout = setTimeout(() => {
+        console.log("Timeout waiting for response");
         resolve(new Error("Timeout"));
       }, 10_000);
       page.on("response", (response) => {
@@ -159,11 +159,21 @@ async function GetRequest(req: express.Request, res: express.Response) {
     }
   } catch (error: unknown) {
     console.log("Closing browser session");
-    if (body.session_id.length == 0) {
-      await browser.browser.close();
+    // if (browser.browser.isConnected()
+    const pageLength = (await browser.browser.pages()).length;
+    if (isUsingSession) {
+      if (pageLength > 1) {
+        await page.close();
+      }
     } else {
-      await page.close();
+      try {
+        await page.close();
+        await browser.browser.close();
+      } catch (error) {
+        console.error("Error closing browser:", error);
+      }
     }
+
     return res
       .status(500)
       .json({ message: `Failed to execute actions : ${error}` });
@@ -172,14 +182,21 @@ async function GetRequest(req: express.Request, res: express.Response) {
   var hasAi = typeof body.ai_extractor === "string";
   if (hasAi) {
     const selectorText = body.ai_extractor;
-    var pageText = await page.evaluate((selector) => {
-      const element = document.querySelector(selector);
-      if (element) {
-        return element.innerText;
-      } else {
-        return null;
-      }
-    }, selectorText);
+    try {
+      var pageText = await page.evaluate((selector) => {
+        const element = document.querySelector(selector);
+        if (element) {
+          return element.innerText;
+        } else {
+          return null;
+        }
+      }, selectorText);
+    } catch (error) {
+      console.error("Error extracting text:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to execute selector for ai" });
+    }
     if (!pageText) {
       return res.status(500).json({ message: "Failed to extract text" });
     }
@@ -192,27 +209,29 @@ async function GetRequest(req: express.Request, res: express.Response) {
   const title = await page.title();
   await page.screenshot({ path: process.env.SCREENSHOT_PATH + `${uuid}.png` });
 
-  //   get pdf
-
-  if (body.session_id.length == 0) {
-    await browser.browser.close();
+  const pageLength = (await browser.browser.pages()).length;
+  if (isUsingSession) {
+    if (pageLength > 1) {
+      await page.close();
+    }
   } else {
-    await page.close();
+    try {
+      await page.close();
+      await browser.browser.close();
+    } catch (error) {
+      console.error("Error closing browser:", error);
+    }
   }
-  try {
-    await prisma.requestLog.create({
-      data: {
-        userId: user.id,
-        url: body.url,
-        method: "GET",
-        status: status,
-        actions: JSON.stringify(body.actions),
-        sessionId: body.session_id || null,
-      },
-    });
-  } catch (e) {
-    console.error("Failed to log browser request:", e);
-  }
+  await prisma.requestLog.create({
+    data: {
+      userId: user.id,
+      url: body.url,
+      method: "GET",
+      status: status,
+      actions: JSON.stringify(body.actions),
+      sessionId: body.session_id || null,
+    },
+  });
   try {
     const responseData = {
       status: status,
@@ -223,31 +242,57 @@ async function GetRequest(req: express.Request, res: express.Response) {
       content: content,
       screenshot: `/screenshot/${uuid}`,
     };
-    try {
-      if (hasAi) {
-        const ai_res = (
-          await generateText({
-            model: deepseekApi("deepseek-chat"),
-            prompt: `Extract the data from the following HTML page as JSON only. Do not include any explanation or extra text. Only output valid JSON:\n\n${pageText}`,
-          })
-        ).text;
-        const ai_json = ai_res.substring(7, ai_res.length - 3);
-        try {
-          console.log(ai_json);
-          const ai_json_obj = JSON.parse(ai_json);
-          //@ts-ignore
-          responseData["ai"] = ai_json_obj;
-        } catch (e) {
-          console.error("Failed to parse AI JSON:", e);
-          //@ts-ignore
-          responseData["ai"] = ai_json;
-        }
+    if (hasAi) {
+      // if (!user.DeepSeekApiKey) {
+      //   return res.status(500).json({ message: "No DeepSeek API key" });
+      // }
+      const deepseekApi = createDeepSeek({
+        apiKey: process.env.DEEPSEEK_API,
+      });
+
+      // Build the prompt based on whether a schema is provided
+      let prompt = "";
+      if (!body.ai_schema) {
+        return res.status(500).json({ message: "No schema provided" });
       }
-      return res.status(200).json(responseData);
-    } catch (e) {
-      console.error("Failed to extract AI data:", e);
-      res.status(500).json({ message: "Failed to extract AI data" });
+      // If schema is provided, ask the model to follow it
+      prompt = `Extract the data from the following text as JSON following exactly this schema: ${JSON.stringify(
+        body.ai_schema
+      )}
+          Text to extract from:
+          ${pageText}
+          Return only valid JSON that matches the schema. Do not include any explanations or additional text.`;
+      const ai_res = (
+        await generateText({
+          model: deepseekApi("deepseek-chat"),
+          prompt: prompt,
+        })
+      ).text;
+
+      // Clean up the response to extract just the JSON
+      let ai_json = ai_res;
+      if (ai_res.includes("```json")) {
+        ai_json = ai_res
+          .substring(ai_res.indexOf("```json") + 7, ai_res.lastIndexOf("```"))
+          .trim();
+      } else if (ai_res.includes("```")) {
+        ai_json = ai_res
+          .substring(ai_res.indexOf("```") + 3, ai_res.lastIndexOf("```"))
+          .trim();
+      }
+
+      try {
+        console.log("AI extracted JSON:", ai_json);
+        const ai_json_obj = JSON.parse(ai_json);
+        //@ts-ignore
+        responseData["ai"] = ai_json_obj;
+      } catch (e) {
+        console.error("Failed to parse AI JSON:", e);
+        //@ts-ignore
+        responseData["ai"] = ai_json;
+      }
     }
+    return res.status(200).json(responseData);
   } catch (e) {
     console.error("Failed to create request log:", e);
     return res.status(500).json({ message: "Failed to create request log" });
