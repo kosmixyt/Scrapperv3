@@ -1,4 +1,5 @@
 import * as express from "express";
+import { Readable } from "stream";
 import { PrismaClient } from "@prisma/client";
 import dotenv from "dotenv";
 import { ExpressAuth, getSession, User } from "@auth/express";
@@ -92,7 +93,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
         console.error("Error closing browser:", error);
       }
     }
-  }
+  };
 
   page.goto(body.url);
   const response: Error | HTTPResponse = await new Promise(
@@ -203,7 +204,6 @@ async function GetRequest(req: express.Request, res: express.Response) {
   const title = await page.title();
   await page.screenshot({ path: process.env.SCREENSHOT_PATH + `${uuid}.png` });
 
-
   await prisma.requestLog.create({
     data: {
       userId: user.id,
@@ -238,7 +238,7 @@ async function GetRequest(req: express.Request, res: express.Response) {
         return res.status(500).json({ message: "Failed to extract AI data" });
       }
     }
-    await close()
+    await close();
     return res.status(200).json(responseData);
   } catch (e) {
     console.error("Failed to create request log:", e);
@@ -295,51 +295,42 @@ async function BrowserDownloadFile(
       headers: headers,
       redirect: "follow",
     });
-    if (!fetchReq.ok) {
-      console.error(
-        `Failed to fetch file: ${fetchReq.status} ${fetchReq.statusText}`
-      );
-      return res
-        .status(fetchReq.status)
-        .json({ message: "Failed to download file" });
+    res.status(fetchReq.status);
+    // Forward all headers from the original response
+    fetchReq.headers.forEach((value, name) => {
+      // Avoid setting certain headers that might cause conflicts
+      if (!['connection', 'keep-alive', 'transfer-encoding'].includes(name.toLowerCase())) {
+        res.setHeader(name, value);
+      }
+    });
+    // Get the content type to determine if we should set a filename
+    const contentType = fetchReq.headers.get('content-type') || '';
+    const contentDisposition = fetchReq.headers.get('content-disposition');
+    
+    // If it's a downloadable file and no content-disposition is set, try to add filename
+    if (!contentDisposition && contentType && !contentType.includes('text/html')) {
+      // Extract filename from URL if possible
+      const urlPath = new URL(url).pathname;
+      const fileName = urlPath.split('/').pop() || 'downloaded-file';
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     }
-    const contentType =
-      fetchReq.headers.get("content-type") || "application/octet-stream";
-    const contentDisposition =
-      fetchReq.headers.get("content-disposition") ||
-      'attachment; filename="downloaded_file"';
-    const filename =
-      contentDisposition.split("filename=")[1]?.replace(/['"]/g, "") ||
-      "downloaded_file";
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.setHeader(
-      "Content-Length",
-      fetchReq.headers.get("content-length") || "0"
-    );
-
-    if (fetchReq.body) {
-      const reader = fetchReq.body.getReader();
-      res.status(200);
-      const pump = async () => {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(value);
-        }
-        res.end();
-      };
-      pump().catch((err) => {
-        reader.releaseLock();
-        res.status(500).json({ message: "Failed to stream response" });
-      });
-    } else {
-      res.status(500).json({ message: "Failed to read response stream" });
+    // Stream the response data to the client
+    const stream = fetchReq.body;
+    if (!stream) {
+      return res.end();
     }
+    const reader = stream.getReader();
+    for(let done = false; !done; ) {
+      const { value, done: doneReading } = await reader.read();
+      done = doneReading;
+      if (value) {
+        res.write(value);
+      }
+    }
+    res.end();
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Proxy download failed", error: error?.toString() });
+    console.error("Download failed:", error);
+    res.status(500).json({ message: "Failed to download file", error: String(error) });
   }
 }
 
